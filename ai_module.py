@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 from volcenginesdkarkruntime import Ark
 
 # ===================== API基础配置（与你官方调用格式完全一致） =====================
@@ -8,7 +9,13 @@ MODEL_NAME = "doubao-seed-2-1-turbo-260628"
 
 def get_ark_client():
     """初始化Ark客户端，从系统环境变量读取密钥，避免硬编码泄露"""
-    api_key = os.environ.get("ARK_API_KEY")
+    # 云端优先读取后台Secrets
+    if "ARK_API_KEY" in st.secrets:
+        api_key = st.secrets["ARK_API_KEY"]
+    else:
+        # 本地电脑兼容系统环境变量
+        api_key = os.environ.get("ARK_API_KEY")
+        
     if not api_key:
         raise ValueError("未检测到环境变量 ARK_API_KEY，请先在系统环境变量中配置后再使用")
     client = Ark(
