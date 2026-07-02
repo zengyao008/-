@@ -428,7 +428,7 @@ def build_roll_rate_table(monthly_balance_df, fixed_m7_recovery_rate=None, confi
 
     if fixed_m7_recovery_rate is not None:
         recovery_rates = {month: fixed_m7_recovery_rate for month in valid_months}
-        roll_rate_data['M7回收率'] = recovery_rates
+        roll_rate_data['M7假设回收率'] = recovery_rates
 
     roll_rate_df = pd.DataFrame(roll_rate_data).T
     roll_rate_df['近12月平均值'] = roll_rate_df.apply(lambda x: x.dropna().tail(12).mean(), axis=1)
@@ -496,7 +496,7 @@ def calc_monthly_provision(monthly_balance_df, loss_rates_df):
         '月末总资产余额': balance.sum(axis=0),
         '当月应计提拨备': provision_detail.sum(axis=0)
     })
-    monthly_provision['整体拨备率'] = monthly_provision['当月应计提拨备'] / monthly_provision['月末总资产余额']
+    monthly_provision['应计提拨备率'] = monthly_provision['当月应计提拨备'] / monthly_provision['月末总资产余额']
 
     logger.info("月度拨备准备金测算完成")
     return monthly_provision, provision_detail
@@ -515,7 +515,7 @@ def calc_continuous_deterioration(df_clean, min_periods=2):
     label_rank = {label: i for i, label in enumerate(roll_labels)}
 
     # 2. 数据预处理
-    cols = ["合同号", "客户名称", "期号", "逾期天数（DPD）", "未偿还本金"]
+    cols = ["合同号", "经销商名称", "客户名称", "期号", "逾期天数（DPD）", "未偿还本金"]
     df_risk = df_clean[cols].copy()
     df_risk = df_risk.dropna(subset=["逾期天数（DPD）"])
     df_risk["逾期等级"] = pd.cut(
@@ -546,14 +546,15 @@ def calc_continuous_deterioration(df_clean, min_periods=2):
     result = df_risk[df_risk["连续升档期数"] >= min_periods].copy()
     result = result.sort_values("期号", ascending=False).drop_duplicates(subset=["合同号"])
     result = result[[
-        "合同号", "客户名称", "期号", "逾期天数（DPD）",
+        "合同号", "经销商名称", "客户名称", "期号", "逾期天数（DPD）",
         "逾期等级", "连续升档期数", "未偿还本金"
     ]].sort_values("未偿还本金", ascending=False).reset_index(drop=True)
 
     return result
 
 # ==================== 统一总入口（界面只调用这一个函数） ====================
-def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3, config=None):
+def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3,
+                      overdue_dpd_threshold=None, config=None):
     """
     一键执行完整风控分析
     返回：结果字典，包含所有计算结果
@@ -561,10 +562,28 @@ def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3, 
     if config is None:
         config = DEFAULT_CONFIG
 
-    # 1. 数据合并
+    # ========== 新增：覆盖逾期阈值配置 ==========
+    if overdue_dpd_threshold is not None:
+        config["business_params"]["overdue_dpd_threshold"] = overdue_dpd_threshold
+
+    # 1. 数据合并 + 匹配校验
     df_merged = merge_dataframes(rent_df, asset_df)
     if df_merged is None:
         return None
+
+    # ========== 新增：数据匹配度校验 ==========
+    rent_contract_count = rent_df["合同号"].nunique()
+    merged_contract_count = df_merged["合同号"].nunique()
+    match_rate = merged_contract_count / rent_contract_count if rent_contract_count > 0 else 0
+
+    # 匹配率低于90%直接终止，避免错误数据产出错误结论
+    if match_rate < 0.9:
+        print(f"⚠️ 合同匹配率仅 {match_rate:.1%}，低于90%阈值，请检查两个表的口径、合同号格式是否一致")
+        return None
+
+    # 匹配率90%-99%给出警告（不终止，仅提示）
+    if match_rate < 0.99:
+        print(f"⚠️ 合同匹配率 {match_rate:.1%}，存在部分合同未匹配到余额信息，结果可能存在偏差")
 
     # 2. 数据预处理
     df_clean_base = preprocess_data(df_merged, filter_params, config)
@@ -600,6 +619,7 @@ def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3, 
 
     first_overdue_only = overdue_records.sort_values(by=['合同号', '期号']) \
         .groupby('合同号').first().reset_index()
+    first_overdue_only = first_overdue_only[first_overdue_only['首次逾期未偿还本金'] > 0.01]
     first_overdue_only = first_overdue_only.sort_values(by=['Vintage', '期号', '合同号'])
     continuous_deterioration = calc_continuous_deterioration(df_clean_base, min_periods=2)   # 新增：持续恶化高风险账户识别
 
@@ -614,5 +634,7 @@ def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3, 
         "provision_detail": provision_detail,
         "first_overdue": first_overdue_only,
         "analysis_date": ANALYSIS_DATE,
-        "continuous_deterioration": continuous_deterioration  # 新增这行
+        "continuous_deterioration": continuous_deterioration,
+        "match_rate": match_rate,
+        "overdue_threshold": config["business_params"]["overdue_dpd_threshold"]  # 新增这行
     }
