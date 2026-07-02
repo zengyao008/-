@@ -693,7 +693,7 @@ elif page == "风险预警中心":
 
             col1, col2, col3 = st.columns(3)
             col1.metric("持续恶化高风险合同数", f"{len(continuous_df)} 户")
-            col2.metric("涉及未偿还本金", f"{continuous_df['未偿还本金'].sum() / 10000:,.2f} 万元")
+            col2.metric("涉及未偿还本金", f"{continuous_df['未偿还本金'].sum() / 10000:.2f} 万元")
             avg_periods = continuous_df['连续升档期数'].mean() if len(continuous_df) > 0 else 0
             col3.metric("平均连续恶化期数", f"{avg_periods:.1f} 期")
 
