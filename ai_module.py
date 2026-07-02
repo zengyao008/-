@@ -43,7 +43,9 @@ def generate_risk_report(analysis_result):
         analysis_date = analysis_result["analysis_date"].strftime("%Y年%m月%d日")
         # 容错读取逾期阈值
         overdue_threshold = analysis_result.get("overdue_threshold", 16)
-
+        m7_recovery_rate = analysis_result.get("m7_recovery_rate", 0.3)
+        m7_recovery_fmt = f"{m7_recovery_rate * 100:.2f}%"
+        
         # ========== 2. 迁徙率维度 ==========
         month_cols = [col for col in roll_rate.columns if col != "近12月平均值"]
         latest_month = month_cols[-1]
@@ -159,7 +161,7 @@ def generate_risk_report(analysis_result):
         data_summary = f"""
 【一、分析基础信息】
 分析基准日：{analysis_date}
-逾期判定：DPD≥{overdue_threshold}天记为逾期，M7回收率假设30%
+逾期判定：DPD≥{overdue_threshold}天记为逾期，M7回收率假设{m7_recovery_fmt}
 
 统计规则说明（AI解读必须严格遵守，不得违反）：
 1. M5-M6、M6-M7档位因尾部余额基数通常极小，迁徙率数值波动大且可能超过100%，属于统计基数效应，不作为核心风险判断依据，仅作参考
@@ -216,7 +218,7 @@ def generate_risk_report(analysis_result):
 
         # 表格底部补充注释 + 单独说明回收率假设
         data_summary += "\n注：带*档位因尾部余额基数极小，迁徙率波动剧烈，属于统计基数效应，不作为核心风险判断依据，仅作参考。\n"
-        data_summary += "拨备口径补充：M7档位采用固定回收率假设 30%，用于损失率测算与拨备计提。\n"
+        data_summary += "拨备口径补充：M7档位采用固定回收率假设 {m7_recovery_fmt}，用于损失率测算与拨备计提。\n"
 
         data_summary += f"""
 【四、Vintage账龄表现】
