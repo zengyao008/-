@@ -69,7 +69,7 @@ def generate_risk_report(analysis_result):
 
         # 最新拨备数据
         latest_prov = provision.iloc[-1]
-        provision_rate = latest_prov["整体拨备率"]
+        provision_rate = latest_prov["应计提拨备率"]
 
         # ========== 【修改点2：核心！所有展示指标预格式化，AI只能直接摘抄】 ==========
         # 所有金额提前换算单位、固定精度，生成最终展示字符串
@@ -79,7 +79,7 @@ def generate_risk_report(analysis_result):
             "当月拨备_万元": f"{latest_prov['当月应计提拨备'] / 10000:.2f}",
             "M3+不良余额_万元": f"{m3_plus_balance / 10000:.2f}",
             # 比率类：直接转成百分比字符串，固定2位小数
-            "整体拨备率": f"{provision_rate * 100:.2f}%",
+            "应计提拨备率": f"{provision_rate * 100:.2f}%",
             "M3+不良率": f"{m3_plus_rate * 100:.2f}%",
             "M0占比": f"{balance_share.get('M0(0天)', 0) * 100:.2f}%",
             "M1占比": f"{balance_share.get('M1(1-30天)', 0) * 100:.2f}%",
@@ -154,7 +154,7 @@ def generate_risk_report(analysis_result):
 ✅ 以下数值为最终展示值，必须原文摘抄，禁止任何计算、单位转换、修改精度：
 - 月末在贷总资产余额：{fmt['总资产余额_亿元']}亿元
 - 当月应计提拨备金额：{fmt['当月拨备_万元']}万元
-- 整体拨备率：{fmt['整体拨备率']}
+- 应计提拨备率：{fmt['应计提拨备率']}
 - M3+不良率：{fmt['M3+不良率']}
 - 关注类（M1-M2）合计占比：{fmt['关注类合计占比']}
 - 正常类（M0）余额占比：{fmt['M0占比']}
