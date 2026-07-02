@@ -304,7 +304,7 @@ def generate_risk_report(analysis_result):
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.2,
-            max_tokens=1200
+            max_tokens=1800
         )
 
         report_content = response.choices[0].message.content.strip()
