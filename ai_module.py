@@ -159,7 +159,6 @@ def generate_risk_report(analysis_result):
         data_summary = f"""
 【一、分析基础信息】
 分析基准日：{analysis_date}
-业务口径：商用车 · 损失不担模式 · 剔除厂融中心
 逾期判定：DPD≥{overdue_threshold}天记为逾期，M7回收率假设30%
 
 统计规则说明（AI解读必须严格遵守，不得违反）：
