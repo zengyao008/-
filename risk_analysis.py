@@ -636,5 +636,6 @@ def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3,
         "analysis_date": ANALYSIS_DATE,
         "continuous_deterioration": continuous_deterioration,
         "match_rate": match_rate,
-        "overdue_threshold": config["business_params"]["overdue_dpd_threshold"]  # 新增这行
+        "overdue_threshold": config["business_params"]["overdue_dpd_threshold"],  # 新增这行
+        "m7_recovery_rate": fixed_m7_rate  # 新增：返回当前使用的M7回收率假设
     }
