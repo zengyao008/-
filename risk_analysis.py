@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
     "required_columns": {
         "merge": ["合同号", "经销商名称", "客户名称", "起租日", "期号", "租金结算日期", "结清日期", "未偿还本金",
                   "放款金额", "业务类别", "业务模式"],
-        "preprocess": ["合同号", "期号", "放款金额", "起租日", "逾期天数（DPD）", "未偿还本金"]
+        "preprocess": ["合同号", "期号", "期限", "放款金额", "起租日", "逾期天数（DPD）", "未偿还本金"]
     }
 }
 
@@ -49,7 +49,7 @@ logger = init_logger()
 
 
 # ==================== 1. 数据合并（改为接收DataFrame） ====================
-def merge_dataframes(rent_df, asset_df):
+def merge_dataframes(rent_df, asset_df, analysis_date=None):
     try:
         logger.info(f"租金收入表数据行数：{len(rent_df)}")
         logger.info(f"资产余额表数据行数：{len(asset_df)}")
@@ -84,7 +84,11 @@ def merge_dataframes(rent_df, asset_df):
         merged_df['租金结算日期'] = pd.to_datetime(merged_df['租金结算日期'], errors='coerce')
         merged_df['结清日期'] = pd.to_datetime(merged_df['结清日期'], errors='coerce')
 
-        current_date = pd.Timestamp.now().normalize()
+        if analysis_date is None:
+            current_date = pd.Timestamp.now().normalize()
+        else:
+            current_date = pd.Timestamp(analysis_date).normalize()
+
         merged_df['逾期天数（DPD）'] = 0
 
         mask_settled = merged_df['结清日期'].notna() & merged_df['租金结算日期'].notna()
@@ -111,6 +115,11 @@ def merge_dataframes(rent_df, asset_df):
 def validate_data(df):
     df_valid = df.copy()
     invalid_records = []
+
+    num_cols = ["放款金额", "期号", "未偿还本金"]
+    for c in num_cols:
+        if c in df_valid.columns:
+            df_valid[c] = pd.to_numeric(df_valid[c], errors="coerce")
 
     if '放款金额' in df_valid.columns and (df_valid['放款金额'] <= 0).any():
         invalid_cnt = (df_valid['放款金额'] <= 0).sum()
@@ -297,11 +306,12 @@ def filter_invalid_mob(vintage_mob_matrix, analysis_date):
             (analysis_date.year - vintage_mob_matrix['Vintage_date'].dt.year) * 12
             + (analysis_date.month - vintage_mob_matrix['Vintage_date'].dt.month)
     )
-    vintage_mob_matrix['max_valid_mob'] = vintage_mob_matrix['month_diff'].clip(lower=0).replace(0, 1)
+    vintage_mob_matrix['max_valid_mob'] = vintage_mob_matrix['month_diff'].clip(lower=0)
 
     valid_mob_matrix = vintage_mob_matrix[
-        vintage_mob_matrix['期号'] <= vintage_mob_matrix['max_valid_mob']
-        ].copy()
+        (vintage_mob_matrix['期号'] <= vintage_mob_matrix['max_valid_mob'])
+        & (vintage_mob_matrix['max_valid_mob'] > 0)
+    ].copy()
 
     valid_mob_matrix = valid_mob_matrix.drop(columns=['Vintage_date', 'month_diff', 'max_valid_mob'])
     logger.info(f"有效MOB筛选完成：原始记录数{len(vintage_mob_matrix)} → 有效记录数{len(valid_mob_matrix)}")
@@ -322,7 +332,19 @@ def build_monthly_balance(df, analysis_date, config=None):
         起租日=('起租日', 'min')
     ).reset_index()
     contract_base = contract_base.set_index('合同号')
-    contract_base = contract_base[contract_base['起租日'] >= pd.Timestamp('2023-01-01')]
+
+    # 过滤有效起租日
+    valid_start = contract_base['起租日'].dropna()
+    if valid_start.empty:
+        logger.error("无有效起租日期，无法生成月度余额表")
+        return pd.DataFrame()
+
+    max_start_date = valid_start.max()
+    four_year_ago = max_start_date - pd.DateOffset(years=4)    # 基准：最大起租日往前4年
+    year_start = pd.Timestamp(year=four_year_ago.year, month=1, day=1)
+    min_all_start = valid_start.min()    # 数据最早起租日
+    filter_start_date = max(year_start, min_all_start)   # 最终筛选阈值：取【四年前的一月】和【数据最早日期】中更大的那个
+    contract_base = contract_base[contract_base['起租日'] >= filter_start_date]    # 筛选起租日 >= 自动计算的起始日期，不再写死2023
 
     min_date = contract_base['起租日'].min()
     if pd.isna(min_date):
@@ -566,8 +588,12 @@ def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3,
     if overdue_dpd_threshold is not None:
         config["business_params"]["overdue_dpd_threshold"] = overdue_dpd_threshold
 
+    today = pd.Timestamp.now()
+    last_day_of_last_month = today.replace(day=1) - pd.Timedelta(days=1)
+    ANALYSIS_DATE = last_day_of_last_month
+
     # 1. 数据合并 + 匹配校验
-    df_merged = merge_dataframes(rent_df, asset_df)
+    df_merged = merge_dataframes(rent_df, asset_df, analysis_date=ANALYSIS_DATE)
     if df_merged is None:
         return None
 
@@ -591,9 +617,6 @@ def run_full_analysis(rent_df, asset_df, filter_params=None, fixed_m7_rate=0.3,
 
     # 3. Vintage分析
     vintage_mob_matrix = build_vintage_matrix(df_clean)
-    today = pd.Timestamp.now()
-    last_day_of_last_month = today.replace(day=1) - pd.Timedelta(days=1)
-    ANALYSIS_DATE = last_day_of_last_month
     vintage_mob_valid = filter_invalid_mob(vintage_mob_matrix, ANALYSIS_DATE)
     pivot_table = vintage_mob_valid.pivot_table(
         index='Vintage',
